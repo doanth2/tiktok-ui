@@ -1,3 +1,54 @@
+import { configureStore, combineReducers,ThunkAction,Action } from '@reduxjs/toolkit';
+import logger from 'redux-logger';
+import todoSlice from '../features/TodoList/Slice';
+import callClassSlice from '../features/CallClass/Slice';
+import operatorReducer from '../features/Operator/Slice';
+import prefectureReducer from '../features/Prefecture/Slice';
+import completeClassSlice from '../features/CompleteClass/Slice';
+import todayReceptionSlice from '../features/TodayReception/Slice';
+import msgListSlice from '../features/MsgList/Slice';
+import msgKbnReducer from '../features/InputMsg/Slice';
+
+const NODE_ENV = process.env.NODE_ENV;
+
+const rootReducer = combineReducers({
+  todo: todoSlice.reducer,
+  callClass:callClassSlice.reducer,
+  //operator:operatorSlice.reducer,
+  operator:operatorReducer,
+  prefecture:prefectureReducer,
+  completeClass:completeClassSlice.reducer,
+  todayReception:todayReceptionSlice.reducer,
+  msgList:msgListSlice.reducer,
+  msgKbn:msgKbnReducer,
+})
+
+export const store = configureStore({
+    reducer: rootReducer,
+    //middleware: (NODE_ENV === 'production')? [ ...getDefaultMiddleware({...getDefaultMiddleware,serializableCheck: false})] : [ ...getDefaultMiddleware({...getDefaultMiddleware,serializableCheck: false}), logger]
+    middleware: (NODE_ENV === 'production')? 
+                 (getDefaultMiddleware) => getDefaultMiddleware({
+                  serializableCheck: false,
+                 }).concat(logger)
+              : (NODE_ENV === 'development')?
+                 (getDefaultMiddleware) => getDefaultMiddleware({
+                  serializableCheck: false,
+                 }).concat(logger)
+              : (getDefaultMiddleware) => getDefaultMiddleware({
+                serializableCheck: false,
+                }).concat(logger),
+})
+
+export type RootState = ReturnType<typeof rootReducer>;
+export type AppDispatch = typeof store.dispatch;
+export type AppThunk<ReturnType = void> = ThunkAction<
+  ReturnType,
+  RootState,
+  unknown,
+  Action<string>
+>;
+
+
 Operation
 -------------
 import axios from 'axios';
