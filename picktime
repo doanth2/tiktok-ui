@@ -1,40 +1,188 @@
-import * as React from 'react';
-import Stack from '@mui/material/Stack';
-import TextField from '@mui/material/TextField';
-import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
-import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
-import { TimePicker } from '@mui/x-date-pickers/TimePicker';
-import { DateTimePicker } from '@mui/x-date-pickers/DateTimePicker';
-import { DesktopDatePicker } from '@mui/x-date-pickers/DesktopDatePicker';
-import { MobileDatePicker } from '@mui/x-date-pickers/MobileDatePicker';
+Operation
+-------------
+import axios from 'axios';
+import { createAsyncThunk } from '@reduxjs/toolkit'
+import { MsgListConditions, MsgListDetail } from "./Type";
 
-export default function MaterialUIPickers() {
+const url = String(process.env.NEXT_PUBLIC_API_URL);
 
-  const [date, setDate] = React.useState<{dektopDate: Date; mobileDate: Date}>({
-    dektopDate: new Date(),
-    mobileDate: new Date(),
-  })
-  const handleChange = (newValue: Date | null, fieldName: string) => {
-    setDate(pre => ({...pre, [fieldName]: newValue}));
-  };
+const formatDate = (dt) => {
+  const yyyy = dt.getFullYear();
+  const mm = ('00' + (dt.getMonth() + 1)).slice(-2);
+  const dd = ('00' + dt.getDate()).slice(-2);
   return (
-    <LocalizationProvider dateAdapter={AdapterDayjs}>
-      <Stack spacing={3}>
-        <DesktopDatePicker
-          label="Date desktop"
-          inputFormat="MM/DD/YYYY"
-          value={date.dektopDate} 
-          onChange={(newValue) => handleChange(newValue, "dektopDate")}
-          renderInput={(params) => <TextField {...params} />}
-        />
-        <MobileDatePicker
-          label="Date mobile"
-          inputFormat="MM/DD/YYYY"
-          value={date.mobileDate}      
-          onChange={(newValue) => handleChange(newValue, "mobileDate")}
-          renderInput={(params) => <TextField {...params} />}
-        />
-      </Stack>
-    </LocalizationProvider>
-  );
+    yyyy + '/' + mm + '/' + dd
+  )
+};
+
+export const fetchAsyncMsgList = createAsyncThunk<MsgListDetail[],MsgListConditions>(
+  "msgList/detail",
+  async (conditions:MsgListConditions) => {
+    // 担当者コード（本人送信分を出す：ログイン担当者、自動送信分を出す：99999999）、表示日付
+
+    // TODO 担当者コードはログイン担当者コードを設定
+    var operatorId = "";
+    var sendDate = "";
+
+    if(conditions.isShowAuto) {
+      operatorId = '99999999';
+    } else {
+      operatorId = '10000001';
+    }
+
+    sendDate = formatDate(conditions.callDate);
+
+    const res = await axios.get<MsgListDetail[]>(`${url}msgList/detail?operatorid=${operatorId}&calldate=${sendDate}`);
+    return res.data;
+  }
+);
+
+
+
+---------------------------
+selector
+
+import { useSelector } from 'react-redux';
+import { RootState } from "../../stores/Store";
+import { MsgListConditions,MsgListDetail } from './Type';
+import { Filter } from "../../helper/Filter";
+import { FilterParameter  } from '../../helper/Type';
+import { format } from 'date-fns';
+
+// 条件を取得
+export function useInputMsgConditions():MsgListConditions {
+  return useSelector((state:RootState) => state.msgList.conditions);
 }
+
+// 明細を取得
+export function useMsgList():MsgListDetail[] {
+// テストデータ
+//  const list = [
+//    {rowNo:"1",callDt:"2022/10/01 10:00",operatorNm:"担当者１",urgent:"●",customerNm:"テスト太郎",callType:"伝言：その他",memo:"伝言状況テスト",result:"",customerCd:"000304406431",urgentFlg:true,resultFlg:false,callClass:"00001",callHour:"10",callMin:"00",datFlg:false,defaultFlg:true},
+//  ];
+
+  const conditions = useSelector((state:RootState) => state.msgList.conditions);
+  const list = useSelector((state:RootState) => state.msgList.list);
+
+
+  // filter実行
+  var filters:FilterParameter<any>[] = []
+
+  // コール区分コンボボックス未選択時は、以下区分のみ表示させる
+  //    00001:伝言、00006:返品理由保留、00013:返品確認、00014:調査依頼
+  if(conditions.callClass !== "")
+  {
+    filters = filters.concat({key:'callClass',column:'callClass',parameter:[conditions.callClass],comparisonFormula:Filter.equal })
+  } else
+  {
+    filters = filters.concat({key:'defaultFlg',column:'defaultFlg',parameter:[true],comparisonFormula:Filter.equal })
+  }
+  
+  // 本日日付の場合は完了分を出す・出さないの制御が可能
+  // 本日以外の場合は完了分を出すのみ。
+  if(conditions.isToday)
+  {
+    if(!conditions.isShowComplete)
+    {
+      filters = filters.concat({key:'resultFlg',column:'resultFlg',parameter:[false],comparisonFormula:Filter.equal })
+    }
+  }
+  
+  // 移動ボタン押下時は指定日のみ表示させる
+  if(conditions.isMove) 
+  {
+    filters = filters.concat({key:'crtDt',column:'crtDt',parameter:[format(conditions.callDate,'yyyy/MM/dd').replace(/\//g, "")],comparisonFormula:Filter.equal })
+  }
+
+  return Filter.execute(list,filters);
+}
+-----------------------
+slice
+--
+import { createSlice,PayloadAction } from '@reduxjs/toolkit';
+import { MsgListConditions,MsgListDetail,MsgListState} from './Type';
+import { fetchAsyncMsgList } from './Operation';
+
+const initialMsgListState:MsgListState= {
+  list:[] as MsgListDetail[],
+  conditions:{
+    callDate:new Date(),
+    callClass:'',
+    operatorId:'',
+    isShowComplete:false,
+    isShowAuto:false,
+    isToday:true,
+    isMove:false,
+    title:'msgList',
+  } as MsgListConditions,
+}
+
+// MsgList情報のスライス
+const msgListSlice = createSlice({
+  name: 'msglist',
+  initialState:initialMsgListState,
+  reducers: {
+    // レデューサーとアクションを生成
+     conditionsChanged(state:MsgListState,action:PayloadAction<MsgListConditions>) {
+       state.conditions = action.payload
+     }
+    },
+    extraReducers: (builder) => {
+      builder.addCase(
+        fetchAsyncMsgList.fulfilled,
+        (state:MsgListState, action: PayloadAction<MsgListDetail[]>) => {
+          return{
+            ...state,
+            list: action.payload
+          }
+        }
+      )
+    }
+});
+
+export default msgListSlice;
+----
+type
+---
+
+export interface MsgListConditions{
+  [key:string]:string | number | boolean | Date | null,
+  title:string,
+  callDate:Date,
+  callClass:string,
+  operatorId:string,
+  isShowComplete:boolean,
+  isShowAuto:boolean,
+  isToday:boolean,
+  isMove:boolean
+}
+
+export interface MsgListDetail{
+  [key:string]:string | number | boolean | Date | null,
+  rowNo:string,
+  sendDt:string,
+  operatorNm:string,
+  urgent:string,
+  callClassNm:string,
+  customerNm:string,
+  memo:string,
+  result:string,
+  customerCd:string,
+  seqNo:string,
+  urgentFlg:boolean,
+  resultFlg:boolean,
+  callType:string,
+  callClass:string,
+  crtDt:string,
+  callDt:string,
+  callHour:string,
+  callMin:string,
+  datFlg:boolean,
+  defaultFlg:boolean,
+}
+
+export interface MsgListState{
+  conditions:MsgListConditions,
+  list:MsgListDetail[]
+}-
+
